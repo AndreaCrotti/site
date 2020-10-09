@@ -1,20 +1,33 @@
 (ns juxt.site.server
   (:require
-   [jsonista.core :as json]
-   juxt.vext.ring-server
+   [clojure.java.io :as io]
+   [crux.api :as crux]
    [hiccup.page :refer [html5]]
+   [integrant.core :as ig]
+   [juxt.reap.alpha.decoders :as reap]
    [juxt.spin.alpha.handler :as spin.handler]
    [juxt.spin.alpha.resource :as spin.resource]
    [juxt.spin.alpha.server :as spin.server]
-   [crux.api :as crux]
-   [juxt.reap.alpha.decoders :as reap]
-   [integrant.core :as ig]
-   [clojure.java.io :as io]
-   [juxt.vext.content-store :as cstore]))
+   [juxt.vext.content-store :as cstore]
+   juxt.vext.ring-server))
 
 (defmethod ig/init-key ::content-store [_ {:keys [vertx dir]}]
   (.mkdirs (io/file dir))
   (cstore/->VertxFileContentStore vertx (io/file dir) (io/file dir)))
+
+(defn schema->form
+  "Generate an HTML5 form from Crux attributes"
+  [attributes]
+  (html5
+   [:form {:method "POST" :enctype "multipart/form-data"}
+    (into
+     [:field-set]
+     (for [[att-k {:crux.schema/keys [_ label]}] attributes
+           :let [n (name att-k)]]
+       [:div
+        (when label [:label {:for n} label])
+        [:input {:name n :type "text"}]]))
+    [:input {:type "submit" :value "Submit"}]]))
 
 (defn handler [{:keys [crux content-store]}]
   (assert crux)
@@ -30,7 +43,6 @@
 
      spin.resource/GET
      (get-or-head [_ server resource response request respond raise]
-
        (cond
          ;; If there's some content, send it over
          (:juxt.vext.content-store/file resource)
@@ -45,17 +57,7 @@
           {:status 200
            :headers {"content-type" "text/html;charset=utf8"}
            :body
-           (html5
-            [:form {:method "POST" :enctype "multipart/form-data"}
-             (into
-              [:field-set]
-              (for [[att-k {:crux.schema/keys [_ label]}]
-                    (:crux.schema/attributes resource)
-                    :let [n (name att-k)]]
-                [:div
-                 (when label [:label {:for n} label])
-                 [:input {:name n :type "text"}]]))
-             [:input {:type "submit" :value "Submit"}]])})))
+           (schema->form (:crux.schema/attributes resource))})))
 
      spin.resource/POST
      (post [_ server resource response request respond raise]
